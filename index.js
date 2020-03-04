@@ -1,16 +1,22 @@
 var eval = module.exports = function eval(expression, context = {}, options = {}) {
 	// console.log('---', expression, '---');
 	var settings = {
-		reGroupStart: /^\(/,
-		reGroupEnd: /^\)/,
-		reFunction: /^([a-z0-9\_]+)\((.*)\)/,
-		reNumber: /^([0-9\.]+)/,
-		reToken: /^((['|"])?.*?\2)[^a-z0-9_\.]/i,
-		reOperand: /^(==|=|<|>|<=|>=|\&\&|\|\|)/i, // FIXME: Needs compiling
+		re: {
+			// Regular expressions used for parsing {{{
+			groupStart: /^\(/,
+			groupEnd: /^\)/,
+			function: /^([a-z0-9\_]+)\(/, // NOTE: This should only capture up to the first paren
+			number: /^([0-9\.]+)/,
+			token: /^((['|"])?.*?\2)[^a-z0-9_\.]/i,
+			operand: /^(==|=|<|>|<=|>=|\&\&|\|\|)/i, // FIXME: Needs compiling
+			// }}}
+		},
 		operands: {
+			// Supported JS operands {{{
 			// Operand precidence taken from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Operator_Precedence
 			':SPECIAL:(': {sort: 21, handler: (a, b) => false},
 			':SPECIAL:)': {sort: 21, handler: (a, b) => false},
+			':SPECIAL:FUNC': {sort: 21, handler: (a, b) => false},
 			// FIXME: 20 - Member access
 			// FIXME: 20 - Computed memoer access
 			// FIXME: 20 - NEW with arg list
@@ -58,6 +64,7 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 			// FIXME: 3 - Assignment... (see docs)
 			// FIXME: 2 - yield, yield*
 			// FIXME: 1 - comma / sequence
+			// }}}
 		},
 		...options,
 	};
@@ -71,15 +78,16 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 	var expr = expression.trim() + ' ';
 	while (expr) {
 		var nextMatch;
-		if (nextMatch = settings.reNumber.exec(expr)) { // Is a literal number
+		if (nextMatch = settings.re.number.exec(expr)) { // Is a literal number
 			output.push({t: 'token', tt: 'numeric', v: parseFloat(nextMatch[1])});
 			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
-		} else if (nextMatch = settings.reFunction.exec(expr)) { // Function refrence e.g. 'foo()'
+		} else if (nextMatch = settings.re.function.exec(expr)) { // Function refrence e.g. 'foo()'
+			console.log('FUNC', nextMatch);
 			// FIXME: Needs to parse and pass arguments
 			if (!context[nextMatch[1]]) throw new Error(`Unknown function "${nextMatch[1]}"`);
-			output.push({t: 'funcReturn', v: context[nextMatch[1]]()});
+			output.push({t: 'operand', tt: 'func', ...settings.operands[':SPECIAL:FUNC'], func: context[nextMatch[1]]});
 			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
-		} else if (nextMatch = settings.reOperand.exec(expr)) { // Is an operator
+		} else if (nextMatch = settings.re.operand.exec(expr)) { // Is an operator
 			var myOperand = settings.operands[nextMatch[1]];
 			while (operators.length) {
 				var lastOperand = operators[operators.length - 1];
@@ -94,10 +102,10 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 			}
 			operators.push({t: 'operand', ...myOperand});
 			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
-		} else if (settings.reGroupStart.test(expr)) { // Left paren
+		} else if (settings.re.groupStart.test(expr)) { // Left paren
 			operators.push({t: 'operand', ...settings.operands[':SPECIAL:(']});
 			expr = expr.substr(1).trimStart();
-		} else if (settings.reGroupEnd.test(expr)) { // Right paren
+		} else if (settings.re.groupEnd.test(expr)) { // Right paren
 			operators.push({t: 'operand', ...settings.operands[':SPECIAL:)']});
 			while (operators.length > 0 && operators[operators.length - 1] != settings.operands[':SPECIAL:)']) { // While last operator is not left paren
 				output.push(operators.pop());
@@ -106,7 +114,7 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 				operators.pop();
 			}
 			expr = expr.substr(1).trimStart();
-		} else if (nextMatch = settings.reToken.exec(expr)) { // Treat everything else as a string / context lookup
+		} else if (nextMatch = settings.re.token.exec(expr)) { // Treat everything else as a string / context lookup
 			if (['"', "'"].includes(nextMatch[2])) { // Literal string (enclosed in ' / " marks)
 				output.push({t: 'token', tt: 'string', v: nextMatch[1].substr(1, nextMatch[1].length -2)});
 			} else { // Assume context lookup
@@ -125,11 +133,16 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 	}
 
 
-	// console.log('RPN', output);
+	console.log('RPN', output);
 
 	var stack = output.reduce((t, v) => {
 		if (v.t == 'operand' && v.sort == 21) {
-			// Ignore parem closures
+			// Ignore parem closures (unless they are functions)
+			if (v.func) {
+				console.log('RUN FUNC WITH', t);
+				t.push({t: 'result', tt: 'ofFunc', v: v.func(t.pop())});
+				console.log('=', t[t.length-1]);
+			}
 		} else if (v.t == 'operand') {
 			var right = t.pop();
 			var left = t.pop();
