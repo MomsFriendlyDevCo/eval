@@ -1,81 +1,142 @@
 var eval = module.exports = function eval(expression, context = {}, options = {}) {
-	console.log('---', expression, '---');
+	// console.log('---', expression, '---');
 	var settings = {
 		reGroupStart: /^\(/,
 		reGroupEnd: /^\)/,
+		reFunction: /^([a-z0-9\_]+)\((.*)\)/,
+		reNumber: /^([0-9\.]+)/,
 		reToken: /^((['|"])?.*?\2)[^a-z0-9_\.]/i,
-		reOperand: /^(==|=|<|>|<=|>=|IN|NOT|AND|\&\&|\|\|)/i,
+		reOperand: /^(==|=|<|>|<=|>=|\&\&|\|\|)/i, // FIXME: Needs compiling
 		operands: {
-			'==': (a, b) => a == b,
-			'===': (a, b) => a === b,
-			'!=': (a, b) => a != b,
-			'!==': (a, b) => a !== b,
-			'<': (a, b) => a < b,
-			'>': (a, b) => a > b,
-			'<=': (a, b) => a <= b,
-			'>=': (a, b) => a >= b,
+			// Operand precidence taken from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Operator_Precedence
+			':SPECIAL:(': {sort: 21, handler: (a, b) => false},
+			':SPECIAL:)': {sort: 21, handler: (a, b) => false},
+			// FIXME: 20 - Member access
+			// FIXME: 20 - Computed memoer access
+			// FIXME: 20 - NEW with arg list
+			// FIXME: 20 - Function call
+			// FIXME: 20 - Optional chaining
+			// FIXME: 19 - NEW without arg list
+			// FIXME: 18 - Postfix increment
+			// FIXME: 18 - Postfix decrement
+			// FIXME: 17 - Logical NOT (!)
+			// FIXME: 17 - Bitwise NOT (~)
+			// FIXME: 17 - Unary Plus (+)
+			// FIXME: 17 - Unary Negation (-)
+			// FIXME: 17 - Prefix increment
+			// FIXME: 17 - Prefix decrement
+			// FIXME: 17 - typeof
+			// FIXME: 17 - void
+			// FIXME: 17 - delete
+			// FIXME: 17 - await
+			// FIXME: 16 - Exponentiation (**)
+			'*': {sort: 15, handler: (a, b) => a * b},
+			'/': {sort: 15, handler: (a, b) => a / b},
+			'%': {sort: 15, handler: (a, b) => a % b},
+			'+': {sort: 14, handler: (a, b) => a + b},
+			'-': {sort: 14, handler: (a, b) => a - b},
+			// FIXME: 13 - Bitwise left shift (<<)
+			// FIXME: 13 - Bitwise right shift (>>)
+			// FIXME: 13 - Bitwise unsigned right shift (>>>)
+			'<': {sort: 12, handler: (a, b) => a < b},
+			'<=': {sort: 12, handler: (a, b) => a <= b},
+			'>': {sort: 12, handler: (a, b) => a > b},
+			'>=': {sort: 12, handler: (a, b) => a >= b},
+			// FIXME: 12 - in
+			// FIXME: 12 - instanceof
+			'==': {sort: 11, handler: (a, b) => a == b},
+			'!=': {sort: 11, handler: (a, b) => a != b},
+			'===': {sort: 11, handler: (a, b) => a === b},
+			'!==': {sort: 11, handler: (a, b) => a !== b},
+			'&': {sort: 10, handler: (a, b) => a & b},
+			'^': {sort: 9, handler: (a, b) => a ^ b},
+			'|': {sort: 8, handler: (a, b) => a | b},
+			'??': {sort: 7, handler: (a, b) => a === undefined || a === null ? b : a},
+			'&&': {sort: 6, handler: (a, b) => a && b},
+			'||': {sort: 5, handler: (a, b) => a || b},
+			// FIXME: 4 - Ternary
+			// FIXME: 3 - Assignment... (see docs)
+			// FIXME: 2 - yield, yield*
+			// FIXME: 1 - comma / sequence
 		},
 		...options,
 	};
 
-	var parsed = [];
-	var parsedOperandBucket = []; // Next operand(s) to add when encountering two tokens in sequence
-	var expr = expression + ' ';
-	var mode = 'token';
+	// Implementation of the Shunting-yard alorithm
+	// @see https://en.wikipedia.org/wiki/Shunting-yard_algorithm
+	var output = []; // {t, v}
+	var operators = [];
 
+
+	var expr = expression.trim() + ' ';
 	while (expr) {
 		var nextMatch;
-		if (nextMatch = settings.reGroupStart.exec(expr)) {
-			console.log('GROUP-START', nextMatch);
-			parsed.push({t: 'eval', from: 'start'});
-			expr = expr.substr(nextMatch[0].length).trimStart();
-			mode = 'token';
-		} else if (nextMatch = settings.reGroupEnd.exec(expr)) {
-			console.log('GROUP-END', nextMatch);
-			parsedOperandBucket.push({t: 'eval', from: 'end'});
-			expr = expr.substr(nextMatch[0].length).trimStart();
-			mode = 'token';
-		} else if (mode == 'token') {
-			nextMatch = settings.reToken.exec(expr);
-			if (!nextMatch) throw new Error('Expected token');
-			// console.log('TOKEN', {expr, token: nextMatch[1], braces: nextMatch[2], finite: isFinite(nextMatch[1])});
-
+		if (nextMatch = settings.reNumber.exec(expr)) { // Is a literal number
+			output.push({t: 'token', tt: 'numeric', v: parseFloat(nextMatch[1])});
+			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
+		} else if (nextMatch = settings.reFunction.exec(expr)) { // Function refrence e.g. 'foo()'
+			// FIXME: Needs to parse and pass arguments
+			if (!context[nextMatch[1]]) throw new Error(`Unknown function "${nextMatch[1]}"`);
+			output.push({t: 'funcReturn', v: context[nextMatch[1]]()});
+			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
+		} else if (nextMatch = settings.reOperand.exec(expr)) { // Is an operator
+			var myOperand = settings.operands[nextMatch[1]];
+			while (operators.length) {
+				var lastOperand = operators[operators.length - 1];
+				if (
+					lastOperand.sort > myOperand.sort // Last in stack has greater precidence
+					|| lastOperand != settings.operands[':SPECIAL:(']
+				) {
+					output.push(operators.pop());
+				} else { // Stop popping from operators -> output when we reach a non-match for the above
+					break;
+				}
+			}
+			operators.push({t: 'operand', ...myOperand});
+			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
+		} else if (settings.reGroupStart.test(expr)) { // Left paren
+			operators.push({t: 'operand', ...settings.operands[':SPECIAL:(']});
+			expr = expr.substr(1).trimStart();
+		} else if (settings.reGroupEnd.test(expr)) { // Right paren
+			operators.push({t: 'operand', ...settings.operands[':SPECIAL:)']});
+			while (operators.length > 0 && operators[operators.length - 1] != settings.operands[':SPECIAL:)']) { // While last operator is not left paren
+				output.push(operators.pop());
+			}
+			if (operators.length > 0 && operators[operators.length - 1] != settings.operands[':SPECIAL:(']) { // Disguard left parent at top of operator stack
+				operators.pop();
+			}
+			expr = expr.substr(1).trimStart();
+		} else if (nextMatch = settings.reToken.exec(expr)) { // Treat everything else as a string / context lookup
 			if (['"', "'"].includes(nextMatch[2])) { // Literal string (enclosed in ' / " marks)
-				parsed.push({t: 'token', v: nextMatch[1].substr(1, nextMatch[1].length -2)});
-			} else if (isFinite(nextMatch[1])) { // Literal numeric
-				parsed.push({t: 'token', v: parseFloat(nextMatch[1])});
+				output.push({t: 'token', tt: 'string', v: nextMatch[1].substr(1, nextMatch[1].length -2)});
 			} else { // Assume context lookup
-				parsed.push({t: 'token', v: eval.get(context, nextMatch[1])});
-			}
-
-			if (parsedOperandBucket.length) {
-				parsed.push(parsedOperandBucket.pop());
+				output.push({t: 'token', tt: 'contextLookup', v: eval.get(context, nextMatch[1])});
 			}
 
 			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
-			mode = 'operand';
-		} else if (mode == 'operand') {
-			nextMatch = settings.reOperand.exec(expr);
-			if (!nextMatch) throw new Error('Expected operand');
-			// console.log('OPERAND', {expr, operand: nextMatch[1]});
-			parsedOperandBucket.push({t: 'operand', v: nextMatch[1]});
-			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
-			mode = 'token';
 		} else {
-			throw new Error('Unknown mode');
+			throw new Error('Unknown syntax error');
 		}
 	}
 
+	// Pop everything from operator stack to output
+	while (operators.length) {
+		output.push(operators.pop());
+	}
 
-	console.log('PARSED', parsed);
-	var stack = parsed.reduce((t, v) => {
-		if (v.t == 'operand') {
-			if (!settings.operands[v.v]) throw new Error(`Unsupported operand "${v.v}"`);
-			var right = t.pop().v;
-			var left = t.pop().v;
-			var result = settings.operands[v.v](left, right);
-			t.push(result);
-			console.log('PARSE BUCKET', {operand: v.v, left, right, result});
+
+	// console.log('RPN', output);
+
+	var stack = output.reduce((t, v) => {
+		if (v.t == 'operand' && v.sort == 21) {
+			// Ignore parem closures
+		} else if (v.t == 'operand') {
+			var right = t.pop();
+			var left = t.pop();
+			// console.log('PARSE BUCKET', {operand: v.sort, left, right});
+			var result = v.handler(left.v, right.v);
+			t.push({t: 'result', v: result});
+			// console.log('=', result);
 		} else if (v.t == 'token') {
 			t.push(v);
 		} else {
@@ -83,10 +144,8 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 		}
 		return t;
 	}, []);
-	console.log('---END---');
 
-	if (stack.length == 1) return stack[0];
-	console.log('REMAINING STACK', stack);
+	if (stack.length == 1) return stack[0].v;
 	throw new Error('Remaining unparsed stack!');
 };
 

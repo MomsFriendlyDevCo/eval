@@ -14,12 +14,13 @@ describe('@momsfriendlydevco/eval', ()=> {
 		expect(eval('foo == 1')).to.be.false;
 		expect(eval('foo.foo.foo == 1', {foo: 1})).to.be.false;
 		expect(eval('foo == 1', {foo: 'Foo!'})).to.be.false;
-		//expect(eval(' foo == 1', {foo: 'Foo!'})).to.be.false;
-		//expect(eval('foo == 1 ', {foo: 'Foo!'})).to.be.false;
-		//expect(eval(' foo == 1 ', {foo: 'Foo!'})).to.be.false;
-		// expect(eval('(foo == 1) && (bar == 2)', {foo: 1, bar: 2})).to.be.undefined;
-		// expect(eval('(foo == 1 && (baz == 3)) && (bar == 2)', {foo: 1, bar: 2})).to.be.undefined;
-		//expect(eval('foo == 1 && bar == 2', {foo: 1, bar: 2})).to.be.undefined;
+		expect(eval(' foo == 1', {foo: 'Foo!'})).to.be.false;
+		expect(eval('foo == 1 ', {foo: 'Foo!'})).to.be.false;
+		expect(eval(' foo == 1 ', {foo: 'Foo!'})).to.be.false;
+		expect(eval('1 && 2 && 3', {foo: 1, bar: 2})).to.equal(3);
+		expect(eval('foo == 1 && bar == 2', {foo: 1, bar: 2})).to.be.true;
+		expect(eval('(foo == 1) && (bar == 2)', {foo: 1, bar: 2})).to.be.true;
+		expect(eval('(foo == 1 && (baz == 3)) && (bar == 2)', {foo: 1, bar: 2, baz: 3})).to.be.true;
 	});
 
 });
