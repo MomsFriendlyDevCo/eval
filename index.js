@@ -1,88 +1,7 @@
 var eval = module.exports = function eval(expression, context = {}, options = {}) {
 	// console.log('---', expression, '---');
-	var settings = {
-		re: {
-			// Regular expressions used for parsing {{{
-			groupStart: /^\(/,
-			groupEnd: /^\)/,
-			function: /^([a-z0-9\_]+)\(/, // NOTE: This should only capture up to the first paren
-			functionArgs: /^,/, // Used to seperate function args as a list
-			number: /^([0-9\.]+)/,
-			token: /^((['|"])?.*?\2)[^a-z0-9_\.]/i,
-			operand: false, // If falsy will be computed on each run
-			// }}}
-		},
-		operands: {
-			// Supported JS operands {{{
-			// Operand precidence taken from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Operator_Precedence
-			':SPECIAL:(': {sort: 21, handler: (a, b) => false},
-			':SPECIAL:)': {sort: 21, handler: (a, b) => false},
-			':SPECIAL:FUNC': {sort: 21, handler: (a, b) => false},
-			// FIXME: 20 - Member access
-			// FIXME: 20 - Computed member access
-			// FIXME: 20 - NEW with arg list
-			// FIXME: 20 - Function call
-			// FIXME: 20 - Optional chaining
-			// FIXME: 19 - NEW without arg list
-			// FIXME: 18 - Postfix increment
-			// FIXME: 18 - Postfix decrement
-			// FIXME: 17 - Logical NOT (!)
-			// FIXME: 17 - Bitwise NOT (~)
-			// FIXME: 17 - Unary Plus (+)
-			// FIXME: 17 - Unary Negation (-)
-			// FIXME: 17 - Prefix increment
-			// FIXME: 17 - Prefix decrement
-			// FIXME: 17 - typeof
-			// FIXME: 17 - void
-			// FIXME: 17 - delete
-			// FIXME: 17 - await
-			// FIXME: 16 - Exponentiation (**)
-			'*': {sort: 15, handler: (a, b) => a * b},
-			'/': {sort: 15, handler: (a, b) => a / b},
-			'%': {sort: 15, handler: (a, b) => a % b},
-			'+': {sort: 14, handler: (a, b) => a + b},
-			'-': {sort: 14, handler: (a, b) => a - b},
-			// FIXME: 13 - Bitwise left shift (<<)
-			// FIXME: 13 - Bitwise right shift (>>)
-			// FIXME: 13 - Bitwise unsigned right shift (>>>)
-			'<': {sort: 12, handler: (a, b) => a < b},
-			'<=': {sort: 12, handler: (a, b) => a <= b},
-			'>': {sort: 12, handler: (a, b) => a > b},
-			'>=': {sort: 12, handler: (a, b) => a >= b},
-			// FIXME: 12 - in
-			// FIXME: 12 - instanceof
-			'==': {sort: 11, handler: (a, b) => a == b},
-			'!=': {sort: 11, handler: (a, b) => a != b},
-			'===': {sort: 11, handler: (a, b) => a === b},
-			'!==': {sort: 11, handler: (a, b) => a !== b},
-			'&': {sort: 10, handler: (a, b) => a & b},
-			'^': {sort: 9, handler: (a, b) => a ^ b},
-			'|': {sort: 8, handler: (a, b) => a | b},
-			'??': {sort: 7, handler: (a, b) => a === undefined || a === null ? b : a},
-			'&&': {sort: 6, handler: (a, b) => a && b},
-			'||': {sort: 5, handler: (a, b) => a || b},
-			// FIXME: 4 - Ternary
-			// FIXME: 3 - Assignment... (see docs)
-			// FIXME: 2 - yield, yield*
-			',': {sort: 1, handler: (a, b) => {
-				console.log('PROC ARG', {a, b});
-				return [a, b];
-			}}, // Arg list sequence
-			// }}}
-		},
-		...options,
-	};
-	if (!settings.re.operand) {
-		settings.re.operand = new RegExp(
-			'^('
-			+ Object.keys(settings.operands)
-				.filter(k => !k.startsWith(':SPECIAL:'))
-				.sort((a, b) => a.length == b.length ? a.length > b.length ? 0 : 1 : -1) // Preference longer expressions over shorter (to prevent '&&' matching after '&')
-				.map(k => k.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')) // RegExp escape. See https://github.com/MomsFriendlyDevCo/Nodash
-				.join('|')
-			+ ')'
-		);
-	}
+	var settings = {...eval.defaults, ...options};
+	if (!settings.re.operand) settings.re.operand = eval.compileOperands(settings.operands);
 
 
 	// Implementation of the Shunting-yard alorithm
@@ -179,6 +98,100 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 
 
 /**
+* Default options to use
+* @type {Object}
+*/
+eval.defaults = {
+	re: {
+		// Regular expressions used for parsing {{{
+		groupStart: /^\(/,
+		groupEnd: /^\)/,
+		function: /^([a-z0-9\_]+)\(/, // NOTE: This should only capture up to the first paren
+		functionArgs: /^,/, // Used to seperate function args as a list
+		number: /^([0-9\.]+)/,
+		token: /^((['|"])?.*?\2)[^a-z0-9_\.]/i,
+		operand: false, // If falsy will be computed on each run
+		// }}}
+	},
+	operands: {
+		// Supported JS operands {{{
+		// Operand precidence taken from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Operator_Precedence
+		':SPECIAL:(': {sort: 21, handler: (a, b) => false},
+		':SPECIAL:)': {sort: 21, handler: (a, b) => false},
+		':SPECIAL:FUNC': {sort: 21, handler: (a, b) => false},
+		// FIXME: 20 - Member access
+		// FIXME: 20 - Computed member access
+		// FIXME: 20 - NEW with arg list
+		// FIXME: 20 - Function call
+		// FIXME: 20 - Optional chaining
+		// FIXME: 19 - NEW without arg list
+		// FIXME: 18 - Postfix increment
+		// FIXME: 18 - Postfix decrement
+		// FIXME: 17 - Logical NOT (!)
+		// FIXME: 17 - Bitwise NOT (~)
+		// FIXME: 17 - Unary Plus (+)
+		// FIXME: 17 - Unary Negation (-)
+		// FIXME: 17 - Prefix increment
+		// FIXME: 17 - Prefix decrement
+		// FIXME: 17 - typeof
+		// FIXME: 17 - void
+		// FIXME: 17 - delete
+		// FIXME: 17 - await
+		// FIXME: 16 - Exponentiation (**)
+		'*': {sort: 15, handler: (a, b) => a * b},
+		'/': {sort: 15, handler: (a, b) => a / b},
+		'%': {sort: 15, handler: (a, b) => a % b},
+		'+': {sort: 14, handler: (a, b) => a + b},
+		'-': {sort: 14, handler: (a, b) => a - b},
+		// FIXME: 13 - Bitwise left shift (<<)
+		// FIXME: 13 - Bitwise right shift (>>)
+		// FIXME: 13 - Bitwise unsigned right shift (>>>)
+		'<': {sort: 12, handler: (a, b) => a < b},
+		'<=': {sort: 12, handler: (a, b) => a <= b},
+		'>': {sort: 12, handler: (a, b) => a > b},
+		'>=': {sort: 12, handler: (a, b) => a >= b},
+		// FIXME: 12 - in
+		// FIXME: 12 - instanceof
+		'==': {sort: 11, handler: (a, b) => a == b},
+		'!=': {sort: 11, handler: (a, b) => a != b},
+		'===': {sort: 11, handler: (a, b) => a === b},
+		'!==': {sort: 11, handler: (a, b) => a !== b},
+		'&': {sort: 10, handler: (a, b) => a & b},
+		'^': {sort: 9, handler: (a, b) => a ^ b},
+		'|': {sort: 8, handler: (a, b) => a | b},
+		'??': {sort: 7, handler: (a, b) => a === undefined || a === null ? b : a},
+		'&&': {sort: 6, handler: (a, b) => a && b},
+		'||': {sort: 5, handler: (a, b) => a || b},
+		// FIXME: 4 - Ternary
+		// FIXME: 3 - Assignment... (see docs)
+		// FIXME: 2 - yield, yield*
+		',': {sort: 1, handler: (a, b) => {
+			console.log('PROC ARG', {a, b});
+			return [a, b];
+		}}, // Arg list sequence
+		// }}}
+	},
+};
+
+
+/**
+* Compute the operand RegExp from the list of operands
+* This function is called automatically if `settings.re.operands` is falsy on either the default structure or each `eval()` call
+* @param {Object} operands The operands to compute the RegExp from
+* @returns {RegExp} Compiled regular expression for the operands matcher
+*/
+eval.compileOperands = operands => new RegExp(
+	'^('
+	+ Object.keys(operands)
+		.filter(k => !k.startsWith(':SPECIAL:'))
+		.sort((a, b) => a.length == b.length ? a.length > b.length ? 0 : 1 : -1) // Preference longer expressions over shorter (to prevent '&&' matching after '&')
+		.map(k => k.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')) // RegExp escape. See https://github.com/MomsFriendlyDevCo/Nodash
+		.join('|')
+	+ ')'
+);
+
+
+/**
 * Retrieve a deeply nested value of a complex object
 * This is functionally the same as Lodash's get() function
 * @param {*} item The item to traverse
@@ -198,3 +211,7 @@ eval.get = (item, path) => {
 	};
 	return target;
 };
+
+
+// Compile eval.defaults.re.operand for the first time
+eval.defaults.re.operand = eval.compileOperands(eval.defaults.operands);
