@@ -107,7 +107,7 @@ Lexical features of JavaScript and their support:
 |         11 | (In)Equality           | `a == b`, `a != b`, `a === b`, `a !== b` | Yes       |
 |         10 | Bitwise AND            | `a & b`                                  |           |
 |          9 | Bitwise XOR            | `a ^ b`                                  |           |
-|          8 | Bitwise OR             | `a | b`                                  |           |
+|          8 | Bitwise OR             | `a \| b`                                 |           |
 |          7 | Nullish coalescing     | `a ?? b`                                 | Yes       |
 |          6 | Logical AND            | `a && b`                                 | Yes       |
 |          5 | Logical OR             | `a || b`                                 | Yes       |
