@@ -6,9 +6,10 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 			groupStart: /^\(/,
 			groupEnd: /^\)/,
 			function: /^([a-z0-9\_]+)\(/, // NOTE: This should only capture up to the first paren
+			functionArgs: /^,/, // Used to seperate function args as a list
 			number: /^([0-9\.]+)/,
 			token: /^((['|"])?.*?\2)[^a-z0-9_\.]/i,
-			operand: /^(==|=|<|>|<=|>=|\&\&|\|\|)/i, // FIXME: Needs compiling
+			operand: false, // If falsy will be computed on each run
 			// }}}
 		},
 		operands: {
@@ -18,7 +19,7 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 			':SPECIAL:)': {sort: 21, handler: (a, b) => false},
 			':SPECIAL:FUNC': {sort: 21, handler: (a, b) => false},
 			// FIXME: 20 - Member access
-			// FIXME: 20 - Computed memoer access
+			// FIXME: 20 - Computed member access
 			// FIXME: 20 - NEW with arg list
 			// FIXME: 20 - Function call
 			// FIXME: 20 - Optional chaining
@@ -63,11 +64,26 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 			// FIXME: 4 - Ternary
 			// FIXME: 3 - Assignment... (see docs)
 			// FIXME: 2 - yield, yield*
-			// FIXME: 1 - comma / sequence
+			',': {sort: 1, handler: (a, b) => {
+				console.log('PROC ARG', {a, b});
+				return [a, b];
+			}}, // Arg list sequence
 			// }}}
 		},
 		...options,
 	};
+	if (!settings.re.operand) {
+		settings.re.operand = new RegExp(
+			'^('
+			+ Object.keys(settings.operands)
+				.filter(k => !k.startsWith(':SPECIAL:'))
+				.sort((a, b) => a.length == b.length ? a.length > b.length ? 0 : 1 : -1) // Preference longer expressions over shorter (to prevent '&&' matching after '&')
+				.map(k => k.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')) // RegExp escape. See https://github.com/MomsFriendlyDevCo/Nodash
+				.join('|')
+			+ ')'
+		);
+	}
+
 
 	// Implementation of the Shunting-yard alorithm
 	// @see https://en.wikipedia.org/wiki/Shunting-yard_algorithm
@@ -82,10 +98,8 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 			output.push({t: 'token', tt: 'numeric', v: parseFloat(nextMatch[1])});
 			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
 		} else if (nextMatch = settings.re.function.exec(expr)) { // Function refrence e.g. 'foo()'
-			console.log('FUNC', nextMatch);
-			// FIXME: Needs to parse and pass arguments
 			if (!context[nextMatch[1]]) throw new Error(`Unknown function "${nextMatch[1]}"`);
-			output.push({t: 'operand', tt: 'func', ...settings.operands[':SPECIAL:FUNC'], func: context[nextMatch[1]]});
+			operators.push({t: 'operand', ...settings.operands[':SPECIAL:FUNC'], func: context[nextMatch[1]]});
 			expr = expr.substr(nextMatch.index + nextMatch[1].length).trimStart();
 		} else if (nextMatch = settings.re.operand.exec(expr)) { // Is an operator
 			var myOperand = settings.operands[nextMatch[1]];
@@ -132,16 +146,17 @@ var eval = module.exports = function eval(expression, context = {}, options = {}
 		output.push(operators.pop());
 	}
 
-
-	console.log('RPN', output);
+	// console.log('RPN', output);
 
 	var stack = output.reduce((t, v) => {
 		if (v.t == 'operand' && v.sort == 21) {
 			// Ignore parem closures (unless they are functions)
 			if (v.func) {
-				console.log('RUN FUNC WITH', t);
-				t.push({t: 'result', tt: 'ofFunc', v: v.func(t.pop())});
-				console.log('=', t[t.length-1]);
+				// console.log('RUN FUNC WITH', t);
+				var result = v.func.apply(context, t.map(i => i.v));
+				// console.log('=', result);
+				t = [];
+				t.push({t: 'funcResult', v: result});
 			}
 		} else if (v.t == 'operand') {
 			var right = t.pop();
