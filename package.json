@@ -1,11 +1,8 @@
 {
   "name": "@momsfriendlydevco/eval",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Safe evaluation of JavaScript(ish) expressions",
   "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
   "scripts": {
     "test": "mocha"
   },
